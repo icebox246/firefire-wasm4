@@ -2,6 +2,8 @@
 
 A game written in C for the [WASM-4](https://wasm4.org) fantasy console.
 
+You can play this game online on: [icebox246.itch.io/firefire](https://icebox246.itch.io/firefire).
+
 ## Building
 
 Make sure you have installed [WASM-4](https://wasm4.org/docs/getting-started/setup).
