@@ -1,5 +1,7 @@
 # FireFire
 
+[![Build and publish the game](https://github.com/icebox246/firefire-wasm4/actions/workflows/build.yml/badge.svg)](https://github.com/icebox246/firefire-wasm4/actions/workflows/build.yml)
+
 A game written in C for the [WASM-4](https://wasm4.org) fantasy console.
 
 You can play this game online on: [icebox246.itch.io/firefire](https://icebox246.itch.io/firefire).
