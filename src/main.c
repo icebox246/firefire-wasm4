@@ -44,7 +44,9 @@ enum State : uint8_t {
 typedef struct {
     uint16_t x;
     uint16_t y;
-    uint8_t flip : 1;
+    uint8_t flip;
+    uint8_t lhx;
+    uint8_t lhy;
 } Player;
 
 typedef struct {
@@ -81,9 +83,6 @@ uint8_t selected_player_count_option = 0;
 uint16_t game_countdown = 0;
 
 uint8_t last_winner = 0;
-uint8_t last_hit_player = 0;
-uint16_t last_hit_player_x = 0;
-uint16_t last_hit_player_y = 0;
 
 const uint32_t maps[3][MAP_HEIGHT] = {
     {
@@ -254,12 +253,10 @@ void start_game() {
     uint8_t starter = random() % (selected_player_count_option + 2);
     fire_catch(starter);
 
-    last_hit_player = 0xff;
-
-    scores[0] = 0;
-    scores[1] = 0;
-    scores[2] = 0;
-    scores[3] = 0;
+    for (uint8_t i = 0; i < selected_player_count_option + 2; i++) {
+        players[i].lhx = players[i].lhy = 0xff;
+        scores[i] = 0;
+    }
 }
 
 void draw_title(uint8_t rx, uint8_t ry) {
@@ -393,10 +390,10 @@ void gameplay() {
                 if (fire.dx != 0 || fire.dy != 0) {
                     play_fireball_throw();
                     fire.state = F_FLYING;
-                    if (last_hit_player == pi) {
-                        last_hit_player = 0xff;
-                        P.x = last_hit_player_x;
-                        P.y = last_hit_player_y;
+                    if (P.lhx != 0xff) {
+                        P.x = P.lhx;
+                        P.y = P.lhy;
+                        P.lhx = P.lhy = 0xff;
                     }
                 }
             }
@@ -413,17 +410,15 @@ void gameplay() {
                 case F_HELD:
                     break;
                 case F_FLYING:
-                    if (fire.holder != pi) {
+                    if (fire.holder != pi && P.lhx == 0xff) {
                         scores[fire.holder]++;
                         if (scores[fire.holder] == WIN_THRESHOLD) {
                             current_state = GAMEOVER;
                             last_winner = fire.holder;
                             return;
                         }
-
-                        last_hit_player = pi;
-                        last_hit_player_x = P.x;
-                        last_hit_player_y = P.y;
+                        P.lhx = (uint8_t)P.x;
+                        P.lhy = (uint8_t)P.y;
                         P.x = TILE_SIZE * MAP_WIDTH / 2 - TILE_SIZE / 2;
                         P.y = TILE_SIZE * MAP_HEIGHT / 2 - TILE_SIZE / 2;
                         play_fireball_hit();
@@ -440,7 +435,11 @@ void gameplay() {
             rect(players[pi].x + 1, players[pi].y + TILE_SIZE - 1,
                  TILE_SIZE - 2, 2);
         }
-        *DRAW_COLORS = 0x4320;
+        if (P.lhx == 0xff) {
+            *DRAW_COLORS = 0x4320;
+        } else {
+            *DRAW_COLORS = 0x4330;
+        }
         blit(mage, P.x - 1, P.y - 1, mageWidth, mageHeight,
              mageFlags | (P.flip * BLIT_FLIP_X));
 #undef P
@@ -493,7 +492,10 @@ void gameplay() {
                 fireballWidth / 4 * ((frame >> 2) & 3), 0, fireballWidth,
                 fireballFlags);
         if (fire.state == F_HELD) {
-            *DRAW_COLORS = 0x3;
+            if ((*NETPLAY & 0b100) && current_player_id != fire.holder)
+                *DRAW_COLORS = 0;
+            else
+                *DRAW_COLORS = 0x3;
             line(fire.x + fire.dx * 3 + FIRE_SIZE / 2,
                  fire.y + fire.dy * 3 + FIRE_SIZE / 2,
                  fire.x + fire.dx * 4 + FIRE_SIZE / 2,
