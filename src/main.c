@@ -10,7 +10,8 @@
 #define MAX_PLAYER_COUNT 4
 #define TILE_SIZE 6
 #define PLAYER_SPEED 1
-#define FIRE_SPEED 2
+#define FIRE_SPEED 3
+#define FIRE_SPEED_DIAG 2
 #define FIRE_SIZE 5
 #define FIRE_BOUNCE_TIME 10
 #define FIRE_COMEBACK_TIME (60 * 4)
@@ -369,16 +370,23 @@ void gameplay() {
             P.x = last_x;
 
         if (fire.holder == pi && fire.state == F_HELD) {
-            int8_t new_dx = (gamepad & BUTTON_RIGHT)  ? FIRE_SPEED
-                            : (gamepad & BUTTON_LEFT) ? -FIRE_SPEED
+            int8_t new_dx = (gamepad & BUTTON_RIGHT)  ? FIRE_SPEED_DIAG
+                            : (gamepad & BUTTON_LEFT) ? -FIRE_SPEED_DIAG
                                                       : 0;
-            int8_t new_dy = (gamepad & BUTTON_DOWN) ? FIRE_SPEED
-                            : (gamepad & BUTTON_UP) ? -FIRE_SPEED
+            int8_t new_dy = (gamepad & BUTTON_DOWN) ? FIRE_SPEED_DIAG
+                            : (gamepad & BUTTON_UP) ? -FIRE_SPEED_DIAG
                                                     : 0;
 
             if (new_dx != 0 || new_dy != 0) {
                 fire.dx = new_dx;
                 fire.dy = new_dy;
+                if (fire.dx == 0) {
+                    fire.dy =
+                        (gamepad & BUTTON_DOWN) ? FIRE_SPEED : -FIRE_SPEED;
+                } else if (fire.dy == 0) {
+                    fire.dx =
+                        (gamepad & BUTTON_RIGHT) ? FIRE_SPEED : -FIRE_SPEED;
+                }
             }
 
             if (((gamepad & ~prev_gamepad) & BUTTON_1)) {
