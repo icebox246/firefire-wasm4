@@ -45,3 +45,4 @@ jobs:
           gameData: build/index.html
           itchUsername: ${{ secrets.ITCH_USERNAME }}
           itchGameId: ${{ secrets.ITCH_GAMEID }}
+          buildChannel: web
