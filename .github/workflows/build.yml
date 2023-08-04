@@ -1,0 +1,48 @@
+name: Build and publish the game
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 20.x.x
+
+      - name: Install WASM-4
+        run: npm install -g wasm4
+
+      - name: Install other build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install wget make tar
+
+      - name: Get WASI SDK 20.0
+        run: |
+          wget https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-20/wasi-sdk-20.0-linux.tar.gz
+          tar xzf wasi-sdk-20.0-linux.tar.gz
+
+      - name: Build project
+        run: ./build-all.sh
+        env: 
+          WASI_SDK_PATH: ./wasi-sdk-20.0/
+
+      - name: Bundle cartridge
+        working-directory: ./build
+        run: w4 bundle cart.wasm --html index.html
+
+      - name: Deploy on itch.io
+        uses: KikimoraGames/itch-publish@v0.0.3
+        working-directory: ./build
+        with:
+          butlerApiKey: ${{ secrets.BUTLER_API_KEY }}
+          gameData: index.html
+          itchUsername: ${{ secrets.ITCH_USERNAME }}
+          itchGameId: ${{ secrets.ITCH_GAMEID }}
