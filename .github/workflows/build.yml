@@ -40,9 +40,8 @@ jobs:
 
       - name: Deploy on itch.io
         uses: KikimoraGames/itch-publish@v0.0.3
-        working-directory: ./build
         with:
           butlerApiKey: ${{ secrets.BUTLER_API_KEY }}
-          gameData: index.html
+          gameData: build/index.html
           itchUsername: ${{ secrets.ITCH_USERNAME }}
           itchGameId: ${{ secrets.ITCH_GAMEID }}
