@@ -8,9 +8,11 @@
 #include "mage.h"
 
 #define MAX_PLAYER_COUNT 4
+#define MAX_FIRE_COUNT 4
 #define TILE_SIZE 6
 #define PLAYER_SPEED 1
-#define FIRE_SPEED 2
+#define FIRE_SPEED 3
+#define FIRE_SPEED_DIAG 2
 #define FIRE_SIZE 5
 #define FIRE_BOUNCE_TIME 10
 #define FIRE_COMEBACK_TIME (60 * 4)
@@ -19,10 +21,20 @@
 #define MAP_HEIGHT 20
 #define WIN_THRESHOLD 7
 
-uint16_t random = 0xbe;
 uint8_t frame = 0;
 uint8_t prev_gamepads[MAX_PLAYER_COUNT] = {0};
 uint8_t scores[MAX_PLAYER_COUNT] = {0};
+
+uint16_t random_st = 0xbe;
+
+uint16_t random() {
+    random_st =
+        (random_st >> 1) | (uint16_t)((((random_st >> 0) ^ (random_st >> 2) ^
+                                        (random_st >> 3) ^ (random_st >> 5)) &
+                                       1)
+                                      << 15);
+    return random_st;
+}
 
 enum State : uint8_t {
     MENU,
@@ -33,7 +45,9 @@ enum State : uint8_t {
 typedef struct {
     uint16_t x;
     uint16_t y;
-    uint8_t flip : 1;
+    uint8_t flip;
+    uint8_t lhx;
+    uint8_t lhy;
 } Player;
 
 typedef struct {
@@ -64,15 +78,13 @@ void play_music() {
 }
 
 Player players[MAX_PLAYER_COUNT];
-Fire fire;
+Fire fires[MAX_FIRE_COUNT];
 
 uint8_t selected_player_count_option = 0;
+uint8_t selected_fire_count_option = 0;
 uint16_t game_countdown = 0;
 
 uint8_t last_winner = 0;
-uint8_t last_hit_player = 0;
-uint16_t last_hit_player_x = 0;
-uint16_t last_hit_player_y = 0;
 
 const uint32_t maps[3][MAP_HEIGHT] = {
     {
@@ -178,60 +190,94 @@ void play_menu_select() {
          TONE_PULSE1 | TONE_MODE2);
 }
 
-void fire_catch(uint8_t player_index) {
-    fire.holder = player_index;
-    fire.state = F_HELD;
-    fire.dy = 0;
-    fire.dx = players[player_index].flip ? -FIRE_SPEED : FIRE_SPEED;
+void fire_catch(uint8_t player_index, uint8_t fire_index) {
+    fires[fire_index].holder = player_index;
+    fires[fire_index].state = F_HELD;
+    fires[fire_index].dy = 0;
+    fires[fire_index].dx =
+        players[player_index].flip ? -FIRE_SPEED : FIRE_SPEED;
 }
 
 void start_game() {
     game_countdown = 60 * STARTUP_COUNTDOWN;
     current_state = GAMEPLAY;
 
+    static struct {
+        uint8_t x, y, flip;
+    } starting_positions[MAX_PLAYER_COUNT] = {0};
+
     switch (selected_player_count_option) {
         case 0:
-            players[0].x = TILE_SIZE * 3;
-            players[0].y = TILE_SIZE * MAP_HEIGHT / 2;
-            players[0].flip = 0;
+            starting_positions[0].x = TILE_SIZE * 3;
+            starting_positions[0].y = TILE_SIZE * MAP_HEIGHT / 2;
+            starting_positions[0].flip = 0;
 
-            players[1].x = TILE_SIZE * (MAP_WIDTH - 1 - 3);
-            players[1].y = TILE_SIZE * MAP_HEIGHT / 2;
-            players[1].flip = 1;
+            starting_positions[1].x = TILE_SIZE * (MAP_WIDTH - 1 - 3);
+            starting_positions[1].y = TILE_SIZE * MAP_HEIGHT / 2;
+            starting_positions[1].flip = 1;
             break;
         case 1:
-            players[0].x = TILE_SIZE * 3;
-            players[0].y = TILE_SIZE * MAP_HEIGHT / 3;
-            players[0].flip = 0;
+            starting_positions[0].x = TILE_SIZE * 3;
+            starting_positions[0].y = TILE_SIZE * MAP_HEIGHT / 3;
+            starting_positions[0].flip = 0;
 
-            players[1].x = TILE_SIZE * (MAP_WIDTH - 1 - 3);
-            players[1].y = TILE_SIZE * MAP_HEIGHT / 3;
-            players[1].flip = 1;
+            starting_positions[1].x = TILE_SIZE * (MAP_WIDTH - 1 - 3);
+            starting_positions[1].y = TILE_SIZE * MAP_HEIGHT / 3;
+            starting_positions[1].flip = 1;
 
-            players[2].x = TILE_SIZE * MAP_WIDTH / 2;
-            players[2].y = TILE_SIZE * (MAP_HEIGHT - 1 - 2);
-            players[0].flip = 0;
+            starting_positions[2].x = TILE_SIZE * MAP_WIDTH / 2;
+            starting_positions[2].y = TILE_SIZE * (MAP_HEIGHT - 1 - 2);
+            starting_positions[0].flip = 0;
             break;
         case 2:
             for (uint8_t pi = 0; pi < 4; pi++) {
-                players[pi].x =
+                starting_positions[pi].x =
                     !(pi & 1) ? TILE_SIZE * 3 : TILE_SIZE * (MAP_WIDTH - 1 - 3);
-                players[pi].y = !(pi & 2) ? TILE_SIZE * 2
-                                          : TILE_SIZE * (MAP_HEIGHT - 1 - 2);
-                players[pi].flip = (pi & 1);
+                starting_positions[pi].y =
+                    !(pi & 2) ? TILE_SIZE * 2
+                              : TILE_SIZE * (MAP_HEIGHT - 1 - 2);
+                starting_positions[pi].flip = (pi & 1);
             }
             break;
     }
 
-    uint8_t starter = random % (selected_player_count_option + 2);
-    fire_catch(starter);
+    {
+        uint8_t i = 0;
+        for (uint8_t c = selected_player_count_option + 2; c > 0; c--) {
+            uint8_t si = random() % c;
+            players[i].x = starting_positions[si].x;
+            players[i].y = starting_positions[si].y;
+            players[i].flip = starting_positions[si].flip;
+            starting_positions[si] = starting_positions[c - 1];
+            i++;
+        }
+    }
 
-    last_hit_player = 0xff;
+    if (selected_fire_count_option > selected_player_count_option + 1) {
+        selected_fire_count_option -=
+            selected_fire_count_option - (selected_player_count_option + 1);
+    }
 
-    scores[0] = 0;
-    scores[1] = 0;
-    scores[2] = 0;
-    scores[3] = 0;
+    {
+        uint8_t taken = 0;
+        for (uint8_t fi = 0; fi < selected_fire_count_option + 1; fi++) {
+            uint8_t starter = random() % (selected_player_count_option + 2);
+            if (taken & (1 << starter)) {
+                uint8_t off = random() % (selected_fire_count_option + 2 - fi);
+                while (off--) do {
+                        starter++;
+                        starter %= selected_player_count_option + 2;
+                    } while (taken & (1 << starter));
+            }
+            fire_catch(starter, fi);
+            taken |= 1 << starter;
+        }
+    }
+
+    for (uint8_t i = 0; i < selected_player_count_option + 2; i++) {
+        players[i].lhx = players[i].lhy = 0xff;
+        scores[i] = 0;
+    }
 }
 
 void draw_title(uint8_t rx, uint8_t ry) {
@@ -243,13 +289,23 @@ void draw_title(uint8_t rx, uint8_t ry) {
 
 void menu() {
     uint8_t gamepad = *GAMEPAD1 & ~prev_gamepads[0];
-    if ((gamepad & BUTTON_DOWN) && selected_player_count_option < 2) {
+    if ((gamepad & BUTTON_DOWN) &&
+        selected_player_count_option < MAX_PLAYER_COUNT - 2) {
         play_menu_select();
         selected_player_count_option++;
     }
     if ((gamepad & BUTTON_UP) && selected_player_count_option > 0) {
         play_menu_select();
         selected_player_count_option--;
+    }
+    if ((gamepad & BUTTON_RIGHT) &&
+        selected_fire_count_option < MAX_FIRE_COUNT - 1) {
+        play_menu_select();
+        selected_fire_count_option++;
+    }
+    if ((gamepad & BUTTON_LEFT) && selected_fire_count_option > 0) {
+        play_menu_select();
+        selected_fire_count_option--;
     }
 
     if (gamepad & BUTTON_1) {
@@ -268,11 +324,25 @@ void menu() {
     *DRAW_COLORS = 0x3;
     text(">", 10, ys[selected_player_count_option]);
 
-    *DRAW_COLORS = 0x4321;
-    blit(art, 60, 40, artWidth, artHeight, artFlags);
+    *DRAW_COLORS = 0x2;
+    text("Fire\ncount:", 10, 96);
+    for (uint8_t i = 0; i < MAX_FIRE_COUNT; i++) {
+        if (i <= selected_fire_count_option) {
+            *DRAW_COLORS = 0x4320;
+        } else {
+            *DRAW_COLORS = 0x2220;
+        }
+        blitSub(fireball, 60 + i * fireballWidth / 4, 104, fireballWidth / 4,
+                fireballHeight, fireballWidth / 4 * ((frame >> 2) & 3), 0,
+                fireballWidth, fireballFlags);
+    }
+
+    *DRAW_COLORS = 0x4320;
+    blit(art, 70, 40, artWidth, artHeight, artFlags);
 
     *DRAW_COLORS = 0x2;
-    text("\x86\x87:SELECT\n\x80 :PLAY", 10, 160 - 30);
+    text("\x86\x87:SELECT P.CNT\n\x84\x85:SELECT F.CNT\n\x80 :PLAY", 10,
+         160 - 30);
 }
 
 #define get_tile(tx, ty) ((maps[selected_player_count_option][ty] >> tx) & 1)
@@ -314,6 +384,10 @@ void gameplay() {
     const uint8_t player_count = selected_player_count_option + 2;
     const uint8_t current_player_id = (*NETPLAY & 3);
 
+    const uint8_t fire_count = selected_fire_count_option + 1;
+
+    uint8_t holds_fire = 0;
+
     for (uint8_t pi = 0; pi < player_count; pi++) {
 #define P players[pi]
         uint8_t gamepad = GAMEPAD1[pi] * (game_countdown == 0);
@@ -341,61 +415,81 @@ void gameplay() {
             is_collision(P.x, P.y))
             P.x = last_x;
 
-        if (fire.holder == pi && fire.state == F_HELD) {
-            int8_t new_dx = (gamepad & BUTTON_RIGHT)  ? FIRE_SPEED
-                            : (gamepad & BUTTON_LEFT) ? -FIRE_SPEED
-                                                      : 0;
-            int8_t new_dy = (gamepad & BUTTON_DOWN) ? FIRE_SPEED
-                            : (gamepad & BUTTON_UP) ? -FIRE_SPEED
-                                                    : 0;
+        for (uint8_t fi = 0; fi < fire_count; fi++) {
+            holds_fire |= (fires[fi].holder == pi && fires[fi].state == F_HELD)
+                          << pi;
+        }
 
-            if (new_dx != 0 || new_dy != 0) {
-                fire.dx = new_dx;
-                fire.dy = new_dy;
-            }
+        for (uint8_t fi = 0; fi < fire_count; fi++) {
+#define F fires[fi]
+            if (F.holder == pi && F.state == F_HELD) {
+                int8_t new_dx = (gamepad & BUTTON_RIGHT)  ? FIRE_SPEED_DIAG
+                                : (gamepad & BUTTON_LEFT) ? -FIRE_SPEED_DIAG
+                                                          : 0;
+                int8_t new_dy = (gamepad & BUTTON_DOWN) ? FIRE_SPEED_DIAG
+                                : (gamepad & BUTTON_UP) ? -FIRE_SPEED_DIAG
+                                                        : 0;
 
-            if (((gamepad & ~prev_gamepad) & BUTTON_1)) {
-                if (fire.dx != 0 || fire.dy != 0) {
-                    play_fireball_throw();
-                    fire.state = F_FLYING;
-                    if (last_hit_player == pi) {
-                        last_hit_player = 0xff;
-                        P.x = last_hit_player_x;
-                        P.y = last_hit_player_y;
+                if (new_dx != 0 || new_dy != 0) {
+                    F.dx = new_dx;
+                    F.dy = new_dy;
+                    if (F.dx == 0) {
+                        F.dy =
+                            (gamepad & BUTTON_DOWN) ? FIRE_SPEED : -FIRE_SPEED;
+                    } else if (F.dy == 0) {
+                        F.dx =
+                            (gamepad & BUTTON_RIGHT) ? FIRE_SPEED : -FIRE_SPEED;
+                    }
+                }
+
+                if (((gamepad & ~prev_gamepad) & BUTTON_1)) {
+                    if (F.dx != 0 || F.dy != 0) {
+                        play_fireball_throw();
+                        F.state = F_FLYING;
+                        if (P.lhx != 0xff) {
+                            P.x = P.lhx;
+                            P.y = P.lhy;
+                            P.lhx = P.lhy = 0xff;
+                        }
                     }
                 }
             }
-        }
 
-        if (fire.state != F_HELD &&
-            !(P.x + TILE_SIZE < fire.x || P.y + TILE_SIZE < fire.y ||
-              P.x > fire.x + FIRE_SIZE || P.y > fire.y + FIRE_SIZE)) {
-            switch (fire.state) {
-                case F_IDLE:
-                case F_BOUNCING:
-                    fire_catch(pi);
-                    break;
-                case F_HELD:
-                    break;
-                case F_FLYING:
-                    if (fire.holder != pi) {
-                        scores[fire.holder]++;
-                        if (scores[fire.holder] == WIN_THRESHOLD) {
-                            current_state = GAMEOVER;
-                            last_winner = fire.holder;
-                            return;
+            if (F.state != F_HELD &&
+                !(P.x + TILE_SIZE < F.x || P.y + TILE_SIZE < F.y ||
+                  P.x > F.x + FIRE_SIZE || P.y > F.y + FIRE_SIZE)) {
+                switch (F.state) {
+                    case F_IDLE:
+                    case F_BOUNCING:
+                        if (!(holds_fire & (1 << pi))) {
+                            fire_catch(pi, fi);
+                            holds_fire |= 1 << pi;
                         }
-
-                        last_hit_player = pi;
-                        last_hit_player_x = P.x;
-                        last_hit_player_y = P.y;
-                        P.x = TILE_SIZE * MAP_WIDTH / 2 - TILE_SIZE / 2;
-                        P.y = TILE_SIZE * MAP_HEIGHT / 2 - TILE_SIZE / 2;
-                        play_fireball_hit();
-                        fire_catch(pi);
-                    }
-                    break;
+                        break;
+                    case F_HELD:
+                        break;
+                    case F_FLYING:
+                        if (F.holder != pi && P.lhx == 0xff) {
+                            scores[F.holder]++;
+                            if (scores[F.holder] == WIN_THRESHOLD) {
+                                current_state = GAMEOVER;
+                                last_winner = F.holder;
+                                return;
+                            }
+                            P.lhx = (uint8_t)P.x;
+                            P.lhy = (uint8_t)P.y;
+                            P.x = TILE_SIZE * MAP_WIDTH / 2 - TILE_SIZE / 2;
+                            P.y = TILE_SIZE * MAP_HEIGHT / 2 - TILE_SIZE / 2;
+                            play_fireball_hit();
+                            if (!(holds_fire & (1 << pi))) {
+                                fire_catch(pi, fi);
+                                holds_fire |= 1 << pi;
+                            }
+                        }
+                        break;
+                }
             }
+#undef F
         }
 
         /* *DRAW_COLORS = 0x31; */
@@ -405,65 +499,82 @@ void gameplay() {
             rect(players[pi].x + 1, players[pi].y + TILE_SIZE - 1,
                  TILE_SIZE - 2, 2);
         }
-        *DRAW_COLORS = 0x4320;
+        if (P.lhx != 0xff && (frame & 0b1111) < 0b1000) {
+            *DRAW_COLORS = 0x4330;
+        } else {
+            *DRAW_COLORS = 0x4320;
+        }
         blit(mage, P.x - 1, P.y - 1, mageWidth, mageHeight,
              mageFlags | (P.flip * BLIT_FLIP_X));
 #undef P
     }
 
     // update fire
-    switch (fire.state) {
-        case F_IDLE:
-            if (!--fire.bounce_timer) fire_catch(fire.holder);
-            break;
-        case F_HELD:
-            fire.x = players[fire.holder].x;
-            fire.y = players[fire.holder].y;
-            break;
-        case F_BOUNCING:
-            if (fire.bounce_timer) fire.bounce_timer--;
-            if (!fire.bounce_timer && !is_collision(fire.x, fire.y)) {
-                fire.state = F_IDLE;
-                fire.bounce_timer = FIRE_COMEBACK_TIME;
-            }
-        case F_FLYING:
-            fire.x += fire.dx;
-            if ((int16_t)fire.x < 0 ||
-                fire.x > TILE_SIZE * MAP_WIDTH - FIRE_SIZE) {
-                fire.x -= fire.dx;
-                fire.dx = -fire.dx;
-                if (fire.state != F_BOUNCING)
-                    fire.bounce_timer = FIRE_BOUNCE_TIME;
-                fire.state = F_BOUNCING;
-                play_fireball_bounce();
-            }
-            fire.y += fire.dy;
-            if ((int16_t)fire.y < 0 ||
-                fire.y > TILE_SIZE * MAP_HEIGHT - FIRE_SIZE) {
-                fire.y -= fire.dy;
-                fire.dy = -fire.dy;
-                if (fire.state != F_BOUNCING)
-                    fire.bounce_timer = FIRE_BOUNCE_TIME;
-                fire.state = F_BOUNCING;
-                play_fireball_bounce();
-            }
-            break;
-    }
-
-    if (!game_countdown) {
-        *DRAW_COLORS = 0x4320;
-        blitSub(fireball, fire.x - 1 + (fire.state == F_HELD) * 1,
-                fire.y - 1 - (fire.state == F_HELD) * TILE_SIZE,
-                fireballWidth / 4, fireballHeight,
-                fireballWidth / 4 * ((frame >> 2) & 3), 0, fireballWidth,
-                fireballFlags);
-        if (fire.state == F_HELD) {
-            *DRAW_COLORS = 0x3;
-            line(fire.x + fire.dx * 3 + FIRE_SIZE / 2,
-                 fire.y + fire.dy * 3 + FIRE_SIZE / 2,
-                 fire.x + fire.dx * 4 + FIRE_SIZE / 2,
-                 fire.y + fire.dy * 4 + FIRE_SIZE / 2);
+    for (uint8_t fi = 0; fi < fire_count; fi++) {
+#define F fires[fi]
+        switch (F.state) {
+            case F_IDLE:
+                if (!--F.bounce_timer) {
+                    if (!(holds_fire & (1 << F.holder))) {
+                        fire_catch(F.holder, fi);
+                    } else {
+                        F.bounce_timer++;
+                    }
+                }
+                break;
+            case F_HELD:
+                F.x = players[F.holder].x;
+                F.y = players[F.holder].y;
+                break;
+            case F_BOUNCING:
+                if (F.bounce_timer) F.bounce_timer--;
+                if (!F.bounce_timer && !is_collision(F.x, F.y)) {
+                    F.state = F_IDLE;
+                    F.bounce_timer = FIRE_COMEBACK_TIME;
+                }
+            case F_FLYING:
+                F.x += F.dx;
+                if ((int16_t)F.x < 0 ||
+                    F.x > TILE_SIZE * MAP_WIDTH - FIRE_SIZE) {
+                    F.x -= F.dx;
+                    F.dx = -F.dx;
+                    if (F.state != F_BOUNCING)
+                        F.bounce_timer = FIRE_BOUNCE_TIME;
+                    F.state = F_BOUNCING;
+                    play_fireball_bounce();
+                }
+                F.y += F.dy;
+                if ((int16_t)F.y < 0 ||
+                    F.y > TILE_SIZE * MAP_HEIGHT - FIRE_SIZE) {
+                    F.y -= F.dy;
+                    F.dy = -F.dy;
+                    if (F.state != F_BOUNCING)
+                        F.bounce_timer = FIRE_BOUNCE_TIME;
+                    F.state = F_BOUNCING;
+                    play_fireball_bounce();
+                }
+                break;
         }
+
+        if (!game_countdown) {
+            *DRAW_COLORS = 0x4320;
+            blitSub(fireball, F.x - 1 + (F.state == F_HELD) * 1,
+                    F.y - 1 - (F.state == F_HELD) * TILE_SIZE,
+                    fireballWidth / 4, fireballHeight,
+                    fireballWidth / 4 * ((frame >> 2) & 3), 0, fireballWidth,
+                    fireballFlags);
+            if (F.state == F_HELD) {
+                if ((*NETPLAY & 0b100) && current_player_id != F.holder)
+                    *DRAW_COLORS = 0;
+                else
+                    *DRAW_COLORS = 0x3;
+                line(F.x + F.dx * 3 + FIRE_SIZE / 2,
+                     F.y + F.dy * 3 + FIRE_SIZE / 2,
+                     F.x + F.dx * 4 + FIRE_SIZE / 2,
+                     F.y + F.dy * 4 + FIRE_SIZE / 2);
+            }
+        }
+#undef F
     }
 
     *DRAW_COLORS = 0x4;
@@ -491,7 +602,7 @@ void gameplay() {
 }
 
 void gameover() {
-    draw_title(10,10);
+    draw_title(10, 10);
 
     static char* winner_text = "Player # won!";
     winner_text[7] = '1' + (char)last_winner;
@@ -530,10 +641,7 @@ void update() {
             gameover();
             break;
     }
-    random = (random >> 1) | (uint16_t)((((random >> 0) ^ (random >> 2) ^
-                                          (random >> 3) ^ (random >> 5)) &
-                                         1)
-                                        << 15);
+    random();
     prev_gamepads[0] = *GAMEPAD1;
     prev_gamepads[1] = *GAMEPAD2;
     prev_gamepads[2] = *GAMEPAD3;
