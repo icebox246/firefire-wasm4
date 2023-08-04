@@ -435,10 +435,10 @@ void gameplay() {
             rect(players[pi].x + 1, players[pi].y + TILE_SIZE - 1,
                  TILE_SIZE - 2, 2);
         }
-        if (P.lhx == 0xff) {
-            *DRAW_COLORS = 0x4320;
-        } else {
+        if (P.lhx != 0xff && (frame & 0b1111) < 0b1000) {
             *DRAW_COLORS = 0x4330;
+        } else {
+            *DRAW_COLORS = 0x4320;
         }
         blit(mage, P.x - 1, P.y - 1, mageWidth, mageHeight,
              mageFlags | (P.flip * BLIT_FLIP_X));
