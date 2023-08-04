@@ -19,10 +19,20 @@
 #define MAP_HEIGHT 20
 #define WIN_THRESHOLD 7
 
-uint16_t random = 0xbe;
 uint8_t frame = 0;
 uint8_t prev_gamepads[MAX_PLAYER_COUNT] = {0};
 uint8_t scores[MAX_PLAYER_COUNT] = {0};
+
+uint16_t random_st = 0xbe;
+
+uint16_t random() {
+    random_st =
+        (random_st >> 1) | (uint16_t)((((random_st >> 0) ^ (random_st >> 2) ^
+                                        (random_st >> 3) ^ (random_st >> 5)) &
+                                       1)
+                                      << 15);
+    return random_st;
+}
 
 enum State : uint8_t {
     MENU,
@@ -189,41 +199,58 @@ void start_game() {
     game_countdown = 60 * STARTUP_COUNTDOWN;
     current_state = GAMEPLAY;
 
+    static struct {
+        uint8_t x, y, flip;
+    } starting_positions[MAX_PLAYER_COUNT] = {0};
+
     switch (selected_player_count_option) {
         case 0:
-            players[0].x = TILE_SIZE * 3;
-            players[0].y = TILE_SIZE * MAP_HEIGHT / 2;
-            players[0].flip = 0;
+            starting_positions[0].x = TILE_SIZE * 3;
+            starting_positions[0].y = TILE_SIZE * MAP_HEIGHT / 2;
+            starting_positions[0].flip = 0;
 
-            players[1].x = TILE_SIZE * (MAP_WIDTH - 1 - 3);
-            players[1].y = TILE_SIZE * MAP_HEIGHT / 2;
-            players[1].flip = 1;
+            starting_positions[1].x = TILE_SIZE * (MAP_WIDTH - 1 - 3);
+            starting_positions[1].y = TILE_SIZE * MAP_HEIGHT / 2;
+            starting_positions[1].flip = 1;
             break;
         case 1:
-            players[0].x = TILE_SIZE * 3;
-            players[0].y = TILE_SIZE * MAP_HEIGHT / 3;
-            players[0].flip = 0;
+            starting_positions[0].x = TILE_SIZE * 3;
+            starting_positions[0].y = TILE_SIZE * MAP_HEIGHT / 3;
+            starting_positions[0].flip = 0;
 
-            players[1].x = TILE_SIZE * (MAP_WIDTH - 1 - 3);
-            players[1].y = TILE_SIZE * MAP_HEIGHT / 3;
-            players[1].flip = 1;
+            starting_positions[1].x = TILE_SIZE * (MAP_WIDTH - 1 - 3);
+            starting_positions[1].y = TILE_SIZE * MAP_HEIGHT / 3;
+            starting_positions[1].flip = 1;
 
-            players[2].x = TILE_SIZE * MAP_WIDTH / 2;
-            players[2].y = TILE_SIZE * (MAP_HEIGHT - 1 - 2);
-            players[0].flip = 0;
+            starting_positions[2].x = TILE_SIZE * MAP_WIDTH / 2;
+            starting_positions[2].y = TILE_SIZE * (MAP_HEIGHT - 1 - 2);
+            starting_positions[0].flip = 0;
             break;
         case 2:
             for (uint8_t pi = 0; pi < 4; pi++) {
-                players[pi].x =
+                starting_positions[pi].x =
                     !(pi & 1) ? TILE_SIZE * 3 : TILE_SIZE * (MAP_WIDTH - 1 - 3);
-                players[pi].y = !(pi & 2) ? TILE_SIZE * 2
-                                          : TILE_SIZE * (MAP_HEIGHT - 1 - 2);
-                players[pi].flip = (pi & 1);
+                starting_positions[pi].y =
+                    !(pi & 2) ? TILE_SIZE * 2
+                              : TILE_SIZE * (MAP_HEIGHT - 1 - 2);
+                starting_positions[pi].flip = (pi & 1);
             }
             break;
     }
 
-    uint8_t starter = random % (selected_player_count_option + 2);
+    {
+        uint8_t i = 0;
+        for (uint8_t c = selected_player_count_option + 2; c > 0; c--) {
+            uint8_t si = random() % c;
+            players[i].x = starting_positions[si].x;
+            players[i].y = starting_positions[si].y;
+            players[i].flip = starting_positions[si].flip;
+            starting_positions[si] = starting_positions[c - 1];
+            i++;
+        }
+    }
+
+    uint8_t starter = random() % (selected_player_count_option + 2);
     fire_catch(starter);
 
     last_hit_player = 0xff;
@@ -491,7 +518,7 @@ void gameplay() {
 }
 
 void gameover() {
-    draw_title(10,10);
+    draw_title(10, 10);
 
     static char* winner_text = "Player # won!";
     winner_text[7] = '1' + (char)last_winner;
@@ -530,10 +557,7 @@ void update() {
             gameover();
             break;
     }
-    random = (random >> 1) | (uint16_t)((((random >> 0) ^ (random >> 2) ^
-                                          (random >> 3) ^ (random >> 5)) &
-                                         1)
-                                        << 15);
+    random();
     prev_gamepads[0] = *GAMEPAD1;
     prev_gamepads[1] = *GAMEPAD2;
     prev_gamepads[2] = *GAMEPAD3;
