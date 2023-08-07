@@ -358,7 +358,7 @@ uint8_t is_collision(uint16_t x, uint16_t y) {
 void draw_scoreboard(uint8_t rx, uint8_t ry) {
     const uint8_t current_player_id = (*NETPLAY & 3);
     for (uint8_t pi = 0; pi < selected_player_count_option + 2; pi++) {
-        static char* score_text = "P#:#";
+        static char score_text[] = "P#:#";
         score_text[1] = '1' + (char)pi;
         score_text[3] = '0' + (char)scores[pi];
         *DRAW_COLORS = 0x2 + (pi == current_player_id);
