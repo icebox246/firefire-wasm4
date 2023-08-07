@@ -593,7 +593,7 @@ void gameplay() {
 
     if (game_countdown) {
         uint8_t seconds = (uint8_t)((game_countdown + 59) / 60);
-        char* get_ready_text = "Get ready!\n    %     ";
+        static char get_ready_text[] = "Get ready!\n    %     ";
         get_ready_text[15] = '0' + (char)seconds;
         *DRAW_COLORS = 0x12;
         text(get_ready_text, 80 - 10 * 4, 40);
@@ -604,7 +604,7 @@ void gameplay() {
 void gameover() {
     draw_title(10, 10);
 
-    char* winner_text = "Player # won!";
+    static char winner_text[] = "Player # won!";
     winner_text[7] = '1' + (char)last_winner;
 
     text(winner_text, 10, 30);
